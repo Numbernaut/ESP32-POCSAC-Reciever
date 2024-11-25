@@ -244,14 +244,15 @@ void handleButtonPress() {
     }
   } else {
     // Button is released
-    if (buttonPressed) {
+    if (buttonPressed ) {
       if (!longPressFlag) {
         handleSinglePress(); // Single press detected
       }
       buttonPressed = false;      // Reset for next press
-      longPressFlag = false;      // Reset long press flag after release
       lastPressTime = currentTime; // Update last press time
+      longPressFlag = false;      // Reset long press flag after handling
     }
+
   }
 }
 
@@ -279,9 +280,10 @@ void handleSinglePress() {
       display.println("No Messages");
       display.display();
     } else {
+      displayMessage(currentIndex);
       // Increment currentIndex
       currentIndex = (currentIndex + 1) % count;
-      displayMessage(currentIndex);
+
     }
   }
 
