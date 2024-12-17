@@ -42,10 +42,14 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define NSS_PIN     5     // NSS (Chip Select)
 #define RESET_PIN  14     // Reset
 // Note: DIO0 and DIO1 are not connected (-1) as per your setup
-SX1278 radio = new Module(NSS_PIN, -1, RESET_PIN);
+SX1278 radio = new Module(NSS_PIN, 2, RESET_PIN, 4);
 
 // Receiving packets does not require a DIO2 pin connection in this setup
-const int pin = -1;
+  const int pin = 12;
+
+//frequency offset for cal
+float baseFreq = 439.9875;
+float offset = 0.008;
 
 // Create Pager client instance using the FSK module
 PagerClient pager(&radio);
@@ -58,8 +62,12 @@ int count = 0;         // Number of stored messages
 int currentIndex = 0;  // Index of the current message to display
 bool displayOn = false; // Indicates whether the display is on or off
 
-// Button config
-#define BUTTON_PIN 4 // GPIO pin for the button
+// Buttons config
+#define BUTTON_UP_PIN 25 // GPIO pin for the button
+#define BUTTON_OK_PIN 16 // GPIO pin for the button
+#define BUTTON_DOWN_PIN 26  // GPIO pin for the button
+#define BUTTON_ESC_PIN 27 // GPIO pin for the button
+
 
 // Debounce config
 const unsigned long bounceDelay = 150; // milliseconds
@@ -68,10 +76,11 @@ const unsigned long bounceDelay = 150; // milliseconds
 const unsigned long longPressThreshold = 800; // 0.8 second
 
 // Variables tracking button state
-unsigned long buttonPressTime = 0; // Timestamp of last Button press
-unsigned long lastPressTime = 0;
-bool buttonPressed = false;
-bool longPressFlag = false; // For detecting long presses
+int buttonPins[4] = {BUTTON_UP_PIN, BUTTON_OK_PIN, BUTTON_DOWN_PIN, BUTTON_ESC_PIN};
+unsigned long buttonPressTime[4] = {0, 0, 0, 0}; // Timestamp of last Button press
+unsigned long lastPressTime[4] = {0, 0, 0, 0} ;
+bool buttonPressed[4] = {false, false, false, false};
+bool longPressFlag[4] = {false, false, false, false}; // For detecting long presses
 
 // Variables for non-blocking visual indicators
 unsigned long singlePressIndicatorTime = 0;
@@ -117,7 +126,7 @@ void setup() {
   // Initialize Pager client
   Serial.print(F("[Pager] Initializing ... "));
   // Set frequency to 439.9875 MHz and speed to 1200 bps
-  state = pager.begin(439.9875, 1200);
+  state = pager.begin(baseFreq + offset, 1200);
   if (state == RADIOLIB_ERR_NONE) {
     Serial.println(F("success!"));
   } else {
@@ -139,7 +148,10 @@ void setup() {
   }
 
   // Initialize button with internal pull-up resistor
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_UP_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_OK_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_DOWN_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_ESC_PIN, INPUT_PULLUP);
 
   // Initialize messageBuffer for testing, should be omitted
     for (int i = 0; i < MAX_MESSAGES; i++) {
@@ -173,7 +185,10 @@ void loop() {
     }
   }
 
-  handleButtonPress();
+  handleButtonPress(0); // UP
+  handleButtonPress(1); // OK
+  handleButtonPress(2); // DOWN
+  handleButtonPress(3); // ESC
 
   if (displayOn) {
     // Handle visual indicators
@@ -226,85 +241,142 @@ void displayMessage(int index) {
   display.display();
 }
 
-void handleButtonPress() {
+void handleButtonPress(int buttonIndex) {
   unsigned long currentTime = millis();
 
   // Check if button is pressed
-  if (digitalRead(BUTTON_PIN) == LOW) {
-    if (!buttonPressed && (currentTime - lastPressTime > bounceDelay)) {
-      buttonPressed = true;  // Button press detected
-      buttonPressTime = currentTime;
-      longPressFlag = false; // Reset long press flag for a new press
+  if (digitalRead(buttonPins[buttonIndex]) == LOW) {
+    if (!buttonPressed[buttonIndex] && (currentTime - lastPressTime[buttonIndex] > bounceDelay)) {
+      buttonPressed[buttonIndex] = true;  // Button press detected
+      buttonPressTime[buttonIndex] = currentTime;
+      longPressFlag[buttonIndex] = false; // Reset long press flag for a new press
     }
 
     // Check for long press
-    if (buttonPressed && !longPressFlag && (currentTime - buttonPressTime > longPressThreshold)) {
-      longPressFlag = true; // Long press detected
-      handleLongPress();
+    if (buttonPressed[buttonIndex] && !longPressFlag[buttonIndex] && (currentTime - buttonPressTime[buttonIndex] > longPressThreshold)) {
+      longPressFlag[buttonIndex] = true; // Long press detected
+      handleLongPress(buttonIndex);
     }
   } else {
     // Button is released
-    if (buttonPressed ) {
-      if (!longPressFlag) {
-        handleSinglePress(); // Single press detected
+    if (buttonPressed[buttonIndex] ) {
+      if (!longPressFlag[buttonIndex]) {
+        handleSinglePress(buttonIndex); // Single press detected
       }
-      buttonPressed = false;      // Reset for next press
-      lastPressTime = currentTime; // Update last press time
-      longPressFlag = false;      // Reset long press flag after handling
+      buttonPressed[buttonIndex] = false;      // Reset for next press
+      lastPressTime[buttonIndex] = currentTime; // Update last press time
+      longPressFlag[buttonIndex] = false;      // Reset long press flag after handling
     }
 
   }
 }
 
-void handleSinglePress() {
+void handleSinglePress(int buttonIndex) {
   Serial.println(F("Single Press Detected"));
 
-  if (!displayOn) {
-    // First single press: activate the screen with a generic display
-    displayOn = true;
-    display.ssd1306_command(SSD1306_DISPLAYON);
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 10);
-    display.println("POCSAG Receiver");
-    display.display();
-    // Reset currentIndex
-    currentIndex = 0;
-  } else {
-    // Subsequent presses: iterate messages starting with the first
-    if (count == 0) {
-      // No messages to display
+  if (buttonIndex == 0) {
+  
+    if (!displayOn) {
+      // First single press: activate the screen with a generic display
+      displayOn = true;
+      display.ssd1306_command(SSD1306_DISPLAYON);
       display.clearDisplay();
+      display.setTextSize(1);
+      display.setTextColor(SSD1306_WHITE);
       display.setCursor(0, 10);
-      display.println("No Messages");
+      display.println("POCSAG Receiver");
       display.display();
+      // Reset currentIndex
+      currentIndex = 0;
     } else {
-      displayMessage(currentIndex);
-      // Increment currentIndex
-      currentIndex = (currentIndex + 1) % count;
-
+      // Subsequent presses: iterate messages starting with the first
+      if (count == 0) {
+        // No messages to display
+        display.clearDisplay();
+        display.setCursor(0, 10);
+        display.println("No Messages");
+        display.display();
+      } else {
+        displayMessage(currentIndex);
+        // Increment currentIndex
+        currentIndex = (currentIndex + 1) % count;
+  
+      }
     }
+  
+    // Activate single press indicator
+    display.drawCircle(SCREEN_WIDTH - 2, 5, 2, WHITE);
+    singlePressIndicatorTime = millis();
+    singlePressIndicatorActive = true;
   }
-
-  // Activate single press indicator
-  display.drawCircle(SCREEN_WIDTH - 2, 5, 2, WHITE);
-  singlePressIndicatorTime = millis();
-  singlePressIndicatorActive = true;
+  if (buttonIndex == 1) {
+    Serial.println(F("OK pressed short"));
+      // Initialize Pager client
+      Serial.print(F("[Pager] ReInitializing ... "));
+    // Set frequency to 439.9875 MHz and speed to 1200 bps
+    offset -= 0.0001; 
+    int state = pager.begin(439.9875 + offset, 1200);
+    if (state == RADIOLIB_ERR_NONE) {
+      Serial.println(F("success!"));
+      Serial.println(offset,6);
+      Serial.println(baseFreq + offset,6);
+    } else {
+      Serial.print(F("failed, code "));
+      Serial.println(state);
+      while (true) { delay(10); } // Halt on failure
+    }
+  }   
+  if (buttonIndex == 2) {
+    Serial.println(F("DOWN pressed short"));
+  }
+  if (buttonIndex == 3) {
+    Serial.println(F("ESC pressed short"));
+         // Initialize Pager client
+      Serial.print(F("[Pager] ReInitializing ... "));
+    // Set frequency to 439.9875 MHz and speed to 1200 bps
+    offset += 0.0001;
+    int state = pager.begin(baseFreq + offset, 1200);
+    if (state == RADIOLIB_ERR_NONE) {
+      Serial.println(F("success!"));
+      Serial.println(offset,6);
+      Serial.println(baseFreq + offset,6);
+    } else {
+      Serial.print(F("failed, code "));
+      Serial.println(state);
+      while (true) { delay(10); } // Halt on failure
+    }
+  } 
 }
 
-void handleLongPress() {
+void handleLongPress(int buttonIndex) {
   Serial.println(F("Long Press Detected"));
-  // Turn off the display
-  display.ssd1306_command(SSD1306_DISPLAYOFF);
-  displayOn = false;
-  currentIndex = 0;
+  if (buttonIndex == 0) {
+    // Turn off the display
+    display.ssd1306_command(SSD1306_DISPLAYOFF);
+    displayOn = false;
+    currentIndex = 0;
+  
+    // Activate long press indicator
+    display.drawLine(SCREEN_WIDTH - 3, 15, SCREEN_WIDTH - 1, 15, WHITE);
+    display.drawLine(SCREEN_WIDTH - 2, 14, SCREEN_WIDTH - 2, 16, WHITE);
+    longPressIndicatorTime = millis();
+    longPressIndicatorActive = true;
+  }
 
-  // Activate long press indicator
-  display.drawLine(SCREEN_WIDTH - 3, 15, SCREEN_WIDTH - 1, 15, WHITE);
-  display.drawLine(SCREEN_WIDTH - 2, 14, SCREEN_WIDTH - 2, 16, WHITE);
-  longPressIndicatorTime = millis();
-  longPressIndicatorActive = true;
+  if (buttonIndex == 1) {
+    Serial.println(F("OK pressed long"));
+  }   
+  if (buttonIndex == 2) {
+    Serial.println(F("DOWN pressed long"));
+    int state = radio.transmitDirect(439700000/radio.getFreqStep());
+    Serial.println(F("TRANSMITTING  !"));
+    Serial.println(state);
+    
+  }
+  if (buttonIndex == 3) {
+    Serial.println(F("ESC pressed long"));
+  }
+  
 }
 
 void handleVisualIndicators() {
