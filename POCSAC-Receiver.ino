@@ -29,6 +29,7 @@
 #include <RadioLib.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Adafruit_NeoPixel.h>
 #include <Preferences.h>
 
 //Settings
@@ -41,6 +42,11 @@ Preferences Settings;
 
 // Create an instance of the OLED display
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+#define PIN        13
+#define NUMPIXELS 1
+// 
+Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
 // SX1278 module pin configuration
 #define NSS_PIN     5     // NSS (Chip Select)
@@ -66,6 +72,8 @@ bool displayOn = false; // Indicates whether the display is on or off
 
 bool calMode = false; // Calibration mode if true
 
+bool monitorMode = false; //monitor mode if true
+
 // Buttons config
 #define BUTTON_UP_PIN 25 // GPIO pin for the button
 #define BUTTON_OK_PIN 16 // GPIO pin for the button
@@ -74,7 +82,10 @@ bool calMode = false; // Calibration mode if true
 
 float baseFreq = 439.9875;
 float offset = 0.005;
+
+//RIC DEFINITIONS
 int ricNum = 6;
+
 int rics[10] = {-1,               // 1st private ric
 		1111, 1142, 1110, // Signalspielplatz services
 		8, 2504,          // Generic/Global services
@@ -85,8 +96,8 @@ int masks[10] = {-1,               // 1st private ric
 		-1, -1,          // Generic/Global services
 		-1, -1, -1, -1};   // 2nd & 3rd private ric, 2 spares
 
-int ricColor[10] = {-1,               // 1st private ric
-		-1, -1, -1,  	// Signalspielplatz services
+int ricColor[10] = { 0x7F7F7F,               // 1st private ric
+		0x7F0000, 0x007F00, 0x00007F,  	// Signalspielplatz services
 		-1, -1,          // Generic/Global services
 		-1, -1, -1, -1};   // 2nd & 3rd private ric, 2 spares
 
@@ -110,6 +121,13 @@ bool singlePressIndicatorActive = false;
 unsigned long longPressIndicatorTime = 0;
 bool longPressIndicatorActive = false;
 
+int lookUpRICIndex(int ric) {
+  for (int i=0; i < ricNum; i++) {
+      if (rics[i] == ric)
+        return i;    
+  }
+}
+
 void setup() {
 
 // Initialize Serial for debugging
@@ -124,6 +142,10 @@ void setup() {
 
   // Clear the buffer
   display.clearDisplay();
+
+  pixels.begin();
+  pixels.setPixelColor(0, 0x000000);
+  pixels.show();
 
 // Check persis
 Settings.begin("Settings", true);
@@ -157,31 +179,35 @@ if (isSet == false) {
     while (true) { delay(10); } // Halt on failure
   }
   calMode = true;
+ 
   //radio.setAFC(true);
 
   //radio.setAFCBandwidth(20.0);
 
   // Serial loading of parameters
 
-  /*Settings.begin("Settings", false);
-  Settings.putFloat("baseFreq", 439.9875);
-  Settings.putFloat("offset", 0.005);
-  Settings.end();*/
-
 } else {
+  
   Settings.begin("Settings", true);
   baseFreq = Settings.getFloat("baseFreq");
   offset = Settings.getFloat("offset");
   rics[0] = Settings.getInt("RIC0");
   rics[6] = Settings.getInt("RIC6");
   rics[7] = Settings.getInt("RIC7");
+  monitorMode = Settings.getBool("monitorMode");
   Settings.end();
+
+  if (monitorMode) {
+    for (int i=0;i<10;i++) {
+      masks[i] = 0;
+    }
+  }
 
 // Display initial message
   display.setTextSize(1);             // Normal 1:1 pixel scale
   display.setTextColor(SSD1306_WHITE);// Draw white text
   display.setCursor(0, 10);           // Start at top-left corner
-  display.println("POCSAG Receiver");
+  display.println("ChaosPager");
   display.display();                   // Show initial message
 
   // Initialize SX1278 with default FSK settings
@@ -245,13 +271,11 @@ void calModeLoop() {
   while (true) {
 
 do {
-	Serial.setTimeout(10000);
+	Serial.setTimeout(1000);
 	readBytes = Serial.readString();
 
   Serial.println(readBytes);
   Serial.println(readBytes[0]);
-
-
 
  } while (readBytes[0] != '?');
   
@@ -281,15 +305,25 @@ if (readBytes[0] == '?') {
 		Settings.begin("Settings", false);
 		sscanf(readBytes.c_str(), "?SR%d:%d:%d", &rics[0], &rics[6], &rics[7]);
 		
-		Settings.putFloat("RIC0", rics[0]);
-		Settings.putFloat("RIC6", rics[6]);
-		Settings.putFloat("RIC7", rics[7]);
+		Settings.putInt("RIC0", rics[0]);
+		Settings.putInt("RIC6", rics[6]);
+		Settings.putInt("RIC7", rics[7]);
 		Serial.println(F("SET RICS"));
 		Serial.println(rics[0]);
 		Serial.println(rics[6]);
 		Serial.println(rics[7]);
 		Settings.end();
 	}
+
+  if (readBytes[1] == 'M' && readBytes[2] == 'M') {
+		Settings.begin("Settings", false);
+ 		monitorMode = !monitorMode;
+		Settings.putBool("monitorMode", monitorMode);
+		Serial.println(F("ENABLE MONITOR MODE"));
+		Serial.println(monitorMode);
+		Settings.end();
+	}
+
 
   }
 
@@ -302,16 +336,36 @@ void loop() {
     if (calMode)
       calModeLoop();
 
+  Serial.setTimeout(100);
+	readBytes = Serial.readString();
+
+  if (readBytes[0] == '+' && readBytes[1] == '+' && readBytes[2] == '+' && readBytes[3] == '\n'){
+      calModeLoop();
+  }	
+
+
   // Check if a POCSAG message is available
   if (pager.available() >= 2) {
     Serial.print(F("[Pager] Received pager data, decoding ... "));
+    Serial.print(pager.available());
+
+    //Serial.printf("%X", pager.read());
+
+
 
     // Read the received data into a string
     String str;
-    int state = pager.readData(str);
+    int len = 0; //
+    int addr = 0;
+    int state = pager.readData(str, len, (uint32_t*) &addr);
 
     if (state == RADIOLIB_ERR_NONE) {
       Serial.println(F("success!"));
+      Serial.print(F("[Pager] RIC:\t"));
+      Serial.println(addr);
+      pixels.setPixelColor(0, ricColor[lookUpRICIndex(addr)]);
+      Serial.print(F("[Pager] Size:\t"));
+      Serial.println(str.length());
       Serial.print(F("[Pager] Data:\t"));
       Serial.println(str);
 
@@ -424,7 +478,7 @@ void handleSinglePress(int buttonIndex) {
       display.setTextSize(1);
       display.setTextColor(SSD1306_WHITE);
       display.setCursor(0, 10);
-      display.println("POCSAG Receiver");
+      display.println("ChaosPager");
       display.display();
       // Reset currentIndex
       currentIndex = 0;
@@ -451,41 +505,14 @@ void handleSinglePress(int buttonIndex) {
   }
   if (buttonIndex == 1) {
     Serial.println(F("OK pressed short"));
-      // Initialize Pager client
-      Serial.print(F("[Pager] ReInitializing ... "));
-    // Set frequency to 439.9875 MHz and speed to 1200 bps
-    offset -= 0.0001; 
-    int state = pager.begin(439.9875 + offset, 1200);
-    if (state == RADIOLIB_ERR_NONE) {
-      Serial.println(F("success!"));
-      Serial.println(offset,6);
-      Serial.println(baseFreq + offset,6);
-    } else {
-      Serial.print(F("failed, code "));
-      Serial.println(state);
-      while (true) { delay(10); } // Halt on failure
-    }
+
   }   
   if (buttonIndex == 2) {
     Serial.println(F("DOWN pressed short"));
   }
   if (buttonIndex == 3) {
     Serial.println(F("ESC pressed short"));
-         // Initialize Pager client
-      Serial.print(F("[Pager] ReInitializing ... "));
-    // Set frequency to 439.9875 MHz and speed to 1200 bps
-    offset += 0.0001;
-    int state = pager.begin(baseFreq + offset, 1200);
-    if (state == RADIOLIB_ERR_NONE) {
-      Serial.println(F("success!"));
-      Serial.println(offset,6);
-      Serial.println(baseFreq + offset,6);
-    } else {
-      Serial.print(F("failed, code "));
-      Serial.println(state);
-      while (true) { delay(10); } // Halt on failure
-    }
-  } 
+  }
 }
 
 void handleLongPress(int buttonIndex) {
@@ -511,11 +538,11 @@ void handleLongPress(int buttonIndex) {
          Serial.println(F("DOWN pressed long"));
           Serial.println(offset,6);
           Serial.println(baseFreq,6);
+          Serial.println(rics[0]);
+          Serial.println(rics[6]);
+          Serial.println(rics[7]);
+          Serial.println(monitorMode);
 
-  
-    /*int state = radio.transmitDirect(439700000/radio.getFreqStep());
-    Serial.println(F("TRANSMITTING  !"));
-    Serial.println(state);*/
     
   }
   if (buttonIndex == 3) {
