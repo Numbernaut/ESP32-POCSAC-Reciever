@@ -54,6 +54,7 @@ Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
 SX1278 radio = new Module(NSS_PIN, 2, RESET_PIN, 4);
 
+// Receiving packets does not require a DIO2 pin connection in this setup
 const int pin = 12;
 
 
@@ -85,7 +86,7 @@ float offset = 0.005;
 //RIC DEFINITIONS
 int ricNum = 6;
 
-int rics[10] = {14532,               // 1st private ric
+int rics[10] = {-1,               // 1st private ric
 		1111, 1142, 1110, // Signalspielplatz services
 		8, 2504,          // Generic/Global services
 		-1, -1, -1, -1};   // 2nd & 3rd private ric, 2 spares
@@ -97,8 +98,8 @@ int masks[10] = {-1,               // 1st private ric
 
 int ricColor[10] = { 0x7F7F7F,               // 1st private ric
 		0x7F0000, 0x007F00, 0x00007F,  	// Signalspielplatz services
-		-1, -1,          // Generic/Global services
-		-1, -1, -1, -1};   // 2nd & 3rd private ric, 2 spares
+		0, 0,          // Generic/Global services
+		0, 0, 0, 0};   // 2nd & 3rd private ric, 2 spares
 
 // Tracks whether each RIC slot is "enabled" or not.
 bool ricActive[10] = {
@@ -160,11 +161,12 @@ int lookUpRICIndex(int ric) {
       if (rics[i] == ric)
         return i;    
   }
+  return 9;
 }
 
 void setup() {
 
-// Initialize Seria
+// Initialize Serial for debugging
   Serial.begin(9600); 
 
   // Initialize OLED display

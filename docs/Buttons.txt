@@ -1,0 +1,27 @@
+Internal Names and Index:
+
+       UP 0
+
+   OK 1      ESC 3 
+
+      DOWN 2
+
+Funtion:
+
+Short press:
+
+UP - Step through received messages
+OK - tbd
+ESC - tbd
+DOWN - tbd
+
+Long press:
+
+UP - Disable Display
+OK - tbd
+ESC - tbd
+DOWN - write set parameters to serial
+
+
+
+

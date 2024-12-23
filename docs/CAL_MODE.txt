@@ -1,0 +1,8 @@
+Serial Commands:
+
++++\n - Enter from normal operation
+?SF439.9875 - Set reception frequency to 439.9875 MHz
+?SO0.005 - Set reception offset to +5kHz
+?SR1234567:-1:-1 - Set 1st RIC to 1234567 and leave 2nd & 3rd RIC unset
+?MM - Toggle Monitor Mode
+ 
