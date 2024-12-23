@@ -364,6 +364,7 @@ void loop() {
       Serial.print(F("[Pager] RIC:\t"));
       Serial.println(addr);
       pixels.setPixelColor(0, ricColor[lookUpRICIndex(addr)]);
+      pixels.show();
       Serial.print(F("[Pager] Size:\t"));
       Serial.println(str.length());
       Serial.print(F("[Pager] Data:\t"));
