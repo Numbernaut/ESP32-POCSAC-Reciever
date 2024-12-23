@@ -98,8 +98,8 @@ int masks[10] = {-1,               // 1st private ric
 
 int ricColor[10] = { 0x7F7F7F,               // 1st private ric
 		0x7F0000, 0x007F00, 0x00007F,  	// Signalspielplatz services
-		-1, -1,          // Generic/Global services
-		-1, -1, -1, -1};   // 2nd & 3rd private ric, 2 spares
+		0, 0,          // Generic/Global services
+		0, 0, 0, 0};   // 2nd & 3rd private ric, 2 spares
 
 // Debounce config
 const unsigned long bounceDelay = 150; // milliseconds
@@ -126,6 +126,7 @@ int lookUpRICIndex(int ric) {
       if (rics[i] == ric)
         return i;    
   }
+  return 9;
 }
 
 void setup() {
