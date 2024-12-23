@@ -51,10 +51,9 @@ Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 // SX1278 module pin configuration
 #define NSS_PIN     5     // NSS (Chip Select)
 #define RESET_PIN  14     // Reset
-// Note: DIO0 and DIO1 are not connected (-1) as per your setup
+
 SX1278 radio = new Module(NSS_PIN, 2, RESET_PIN, 4);
 
-// Receiving packets does not require a DIO2 pin connection in this setup
 const int pin = 12;
 
 
@@ -122,7 +121,7 @@ bool inMenu = false; // Tracks whether we are currently in the menu
 const char* menuItems[] = {
   "Mute Buzzer",
   "Change RIC IDs",
-  "Exit Menu"
+  "Turn screen off"
 };
 const int NUM_MENU_ITEMS = 3;
 int currentMenuIndex = 0;
@@ -137,7 +136,7 @@ int editDigitPos = 0;
 //--------------------------------------
 
 // Debounce config
-const unsigned long bounceDelay = 150; // milliseconds
+const unsigned long bounceDelay = 100; // milliseconds
 
 // longPress thresholds
 const unsigned long longPressThreshold = 800; // 0.8 second
@@ -165,7 +164,7 @@ int lookUpRICIndex(int ric) {
 
 void setup() {
 
-// Initialize Serial for debugging
+// Initialize Seria
   Serial.begin(9600); 
 
   // Initialize OLED display
@@ -504,7 +503,7 @@ void handleButtonPress(int buttonIndex) {
 void handleSinglePress(int buttonIndex) {
   Serial.println(F("Single Press Detected"));
 
-// if we are in the menu, defer to the menu handler
+// if we are in a menu, defer to the menu handler
   if (inMenu) {
     handleMenuButtonPress(buttonIndex);
     return; 
@@ -567,7 +566,7 @@ void handleLongPress(int buttonIndex) {
 
   // Handle long presses within RIC Menu
   if (inRicMenu) {
-    // Only RICs 6-9 can enter Digit Edit Mode via long press
+    // Only RICs 6-9 can be edited via long press
     if (currentRicIndex >= 6 && currentRicIndex <= 9 && ricActive[currentRicIndex]) {
       // Enter Digit Edit Mode
       inRicDigitEdit = true;
@@ -742,8 +741,7 @@ void drawRicMenu() {
           display.print(rics[i]);
           display.print(" (OFF)");
         } else {
-          // For 6..9, we store -1 => effectively "OFF"
-          if (!rics[i]==-1) {display.print(rics[i]);}
+          // For 6-9 -1 is set  => effectively "OFF"
           display.print(" (OFF)");
         }
       } else {
@@ -773,8 +771,7 @@ void scrollIfNeeded() {
 }
 
 
-// HANDLE BUTTONS IN RIC MENU
-// ------------------------------------------------------------------------
+// HANDLE BUTTONS IN RIC MENU (Setting RIC)
 void handleRicMenuButtonPress(int buttonIndex) {
   if (inRicDigitEdit) {
     handleRicDigitEditButtonPress(buttonIndex);
@@ -796,7 +793,7 @@ void handleRicMenuButtonPress(int buttonIndex) {
       drawRicMenu();
       break;
 
-    case 1: // OK => Toggle or Edit
+    case 1: // OK => Toggle
       // RIC0 => do nothing (Device RIC locked for toggling)
       if (currentRicIndex == 0) {
         Serial.println("RIC0 is always on. (Device RIC)");
@@ -817,7 +814,7 @@ void handleRicMenuButtonPress(int buttonIndex) {
             // Turn it on => pick default number if -1
             ricActive[currentRicIndex] = true;
             if (rics[currentRicIndex] == -1) {
-              rics[currentRicIndex] = 6000 + (currentRicIndex - 6)*10; 
+              rics[currentRicIndex] = 0000; 
             }
             Serial.print("Enabled RIC");
             Serial.println(currentRicIndex);
@@ -833,7 +830,7 @@ void handleRicMenuButtonPress(int buttonIndex) {
       drawRicMenu();
       break;
 
-    case 3: // ESC => exit RIC menu
+    case 3: // ESC => Turn display off
       inRicMenu = false;
       reorderRics69();  // reorder indices [6..9]
       updateRicNum();
@@ -963,7 +960,6 @@ void drawRicEditScreen() {
   display.println("UP/DN=>+/-,OK=>next");
 
   // Show digits right to left so pos=0 is the LSD
-  // Or keep it left to right idc
   display.setCursor(0, 20);
   for (int i = 0; i < 5; i++) {
     int idx = 4 - i; // LSD is buf[4]
