@@ -513,58 +513,78 @@ void handleButtonPress(int buttonIndex) {
 void handleSinglePress(int buttonIndex) {
   Serial.println(F("Single Press Detected"));
 
-// if we are in a menu, defer to the menu handler
+  // If we are in a menu, defer to the menu handler
   if (inMenu) {
     handleMenuButtonPress(buttonIndex);
     return; 
   }
 
   if (inRicMenu) {
-   handleRicMenuButtonPress(buttonIndex);
-   return;
+    handleRicMenuButtonPress(buttonIndex);
+    return;
   }
 
-  if (buttonIndex == 0) {
-  
+  if (buttonIndex == 0) { // UP Button
     if (!displayOn) {
-      // First single press: activate the screen with a ChaosPager display
+      // First single press: activate the screen with a generic display
       displayOn = true;
       display.ssd1306_command(SSD1306_DISPLAYON);
-      displayChaosPager();
-      // Reset currentIndex
-      currentIndex = 0;
+      displayChaosPager(); // Display "ChaosPager"
+      currentIndex = 0; // Reset currentIndex
+    } else if (count > 0) {
+      // Increment currentIndex with wrap-around
+      currentIndex = (currentIndex + 1) % count;
+      displayMessage(currentIndex); // Display the next message
     } else {
-      // Subsequent presses: iterate messages starting with the first
-      if (count == 0) {
-        // No messages to display
-        display.clearDisplay();
-        display.setCursor(0, 10);
-        display.println("No Messages");
-        display.display();
-      } else {
-        displayMessage(currentIndex);
-        // Increment currentIndex
-        currentIndex = (currentIndex + 1) % count;
-  
-      }
+      // No messages to display
+      display.clearDisplay();
+      display.setCursor(0, 10);
+      display.println("No Messages");
+      display.display();
     }
-  
+
     // Activate single press indicator
     display.drawCircle(SCREEN_WIDTH - 2, 5, 2, WHITE);
     singlePressIndicatorTime = millis();
     singlePressIndicatorActive = true;
   }
-  if (buttonIndex == 1) {
-    Serial.println(F("OK pressed short"));
 
-  }   
-  if (buttonIndex == 2) {
-    Serial.println(F("DOWN pressed short"));
+  else if (buttonIndex == 2) { // DOWN Button
+    if (!displayOn) {
+      // If display is off, activate it and show "ChaosPager"
+      displayOn = true;
+      display.ssd1306_command(SSD1306_DISPLAYON);
+      displayChaosPager(); // Display "ChaosPager"
+      currentIndex = 0; // Reset currentIndex
+    } else if (count > 0) {
+      // Decrement currentIndex with wrap-around
+      currentIndex = (currentIndex - 1 + count) % count;
+      displayMessage(currentIndex); // Display the previous message
+    } else {
+      // No messages to display
+      display.clearDisplay();
+      display.setCursor(0, 10);
+      display.println("No Messages");
+      display.display();
+    }
+
+    // Activate single press indicator
+    display.drawCircle(SCREEN_WIDTH - 2, 5, 2, WHITE);
+    singlePressIndicatorTime = millis();
+    singlePressIndicatorActive = true;
   }
-  if (buttonIndex == 3) {
+
+  else if (buttonIndex == 1) { // OK Button
+    Serial.println(F("OK pressed short"));
+    // Existing logic for OK button remains unchanged
+  }
+
+  else if (buttonIndex == 3) { // ESC Button
     Serial.println(F("ESC pressed short"));
+    // Existing logic for ESC button remains unchanged
   }
 }
+
 
 void handleLongPress(int buttonIndex) {
   Serial.println(F("Long Press Detected"));
