@@ -86,7 +86,7 @@ float offset = 0.005;
 //RIC DEFINITIONS
 int ricNum = 6;
 
-int rics[10] = {-1,               // 1st private ric
+int rics[10] = {1,               // 1st private ric
 		1111, 1142, 1110, // Signalspielplatz services
 		8, 2504,          // Generic/Global services
 		-1, -1, -1, -1};   // 2nd & 3rd private ric, 2 spares
@@ -137,7 +137,7 @@ int editDigitPos = 0;
 //--------------------------------------
 
 // Debounce config
-const unsigned long bounceDelay = 100; // milliseconds
+const unsigned long bounceDelay = 80; // milliseconds
 
 // longPress thresholds
 const unsigned long longPressThreshold = 800; // 0.8 second
@@ -193,7 +193,7 @@ Settings.end();
 
 //frequency offset for cal
 
-if (isSet == false) {
+if (isSet == false ) {
 
 // Display initial message
   display.setTextSize(1);             // Normal 1:1 pixel scale
@@ -226,6 +226,9 @@ if (isSet == false) {
   
   Settings.begin("Settings", true);
   baseFreq = Settings.getFloat("baseFreq");
+  Serial.print("baseFreq: ");
+  Serial.println(baseFreq);
+
   offset = Settings.getFloat("offset");
   rics[0] = Settings.getInt("RIC0");
   rics[6] = Settings.getInt("RIC6");
@@ -239,12 +242,7 @@ if (isSet == false) {
     }
   }
 
-  // Display initial message
-  display.setTextSize(1);             // Normal 1:1 pixel scale
-  display.setTextColor(SSD1306_WHITE);// Draw white text
-  display.setCursor(0, 10);           // Start at top-left corner
-  display.println("ChaosPager");
-  display.display();                   // Show initial message
+//displayChaosPager();
 
   // Initialize SX1278 with default FSK settings
   Serial.print(F("[SX1278] Initializing ... "));
@@ -358,6 +356,16 @@ if (readBytes[0] == '?') {
 		Serial.println(F("ENABLE MONITOR MODE"));
 		Serial.println(monitorMode);
 		Settings.end();
+	}
+  if (readBytes[1] == '!') {
+	Settings.begin("Settings", false);
+	Settings.putFloat("offset",  0.005);
+  Settings.putFloat("baseFreq", 439.9875);
+	Settings.putInt("RIC0", 1);
+	Settings.putInt("RIC6", 2);
+	Settings.putInt("RIC7", 3);
+	Serial.println(F("Fast Cal Performed"));
+	Settings.end();
 	}
 
 
@@ -519,15 +527,10 @@ void handleSinglePress(int buttonIndex) {
   if (buttonIndex == 0) {
   
     if (!displayOn) {
-      // First single press: activate the screen with a generic display
+      // First single press: activate the screen with a ChaosPager display
       displayOn = true;
       display.ssd1306_command(SSD1306_DISPLAYON);
-      display.clearDisplay();
-      display.setTextSize(1);
-      display.setTextColor(SSD1306_WHITE);
-      display.setCursor(0, 10);
-      display.println("ChaosPager");
-      display.display();
+      displayChaosPager();
       // Reset currentIndex
       currentIndex = 0;
     } else {
@@ -619,6 +622,16 @@ void handleLongPress(int buttonIndex) {
   
 }
 
+// Helper Function to Display "ChaosPager"
+void displayChaosPager() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 10); // Adjust as needed for proper centering
+  display.println("ChaosPager");
+  display.display();
+}
+
 // ---------------------------- Menu -----------------------------------
 void drawMenu(int selectedIndex) {
   display.clearDisplay();
@@ -690,8 +703,8 @@ void handleMenuButtonPress(int buttonIndex) {
     case 3: // ESC
       inMenu = false;
       Serial.println("Exiting Menu (ESC)");
-      display.clearDisplay();
-      display.display();
+      displayChaosPager();
+      currentIndex = 0;
       break;
   }
 }
@@ -834,11 +847,12 @@ void handleRicMenuButtonPress(int buttonIndex) {
 
     case 3: // ESC => Turn display off
       inRicMenu = false;
-      reorderRics69();  // reorder indices [6..9]
+      inMenu = true;        // Enter Main Menu
+      reorderRics69();  // reorder indices 6-9
       updateRicNum();
-      Serial.println("Exiting RIC Menu");
-      display.clearDisplay();
-      display.display();
+      Serial.println("Exiting RIC Menu and returning to Main Menu");
+      // Draw the main menu
+      drawMenu(currentMenuIndex);
       break;
   }
 }
