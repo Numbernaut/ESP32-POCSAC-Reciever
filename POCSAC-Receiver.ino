@@ -242,7 +242,7 @@ if (isSet == false ) {
     }
   }
 
-//displayChaosPager();
+  displayChaosPager();
 
   // Initialize SX1278 with default FSK settings
   Serial.print(F("[SX1278] Initializing ... "));
@@ -998,8 +998,8 @@ void drawRicEditScreen() {
   // Show digits right to left so pos=0 is the LSD
   display.setCursor(0, 20);
   for (int i = 0; i < 5; i++) {
-    int idx = 4 - i; // LSD is buf[4]
-    if (i == editDigitPos) {
+    int idx =  i; // LSD is buf[0]
+    if (4-i == editDigitPos) {
       display.print("[");
       display.print(buf[idx]);
       display.print("]");
