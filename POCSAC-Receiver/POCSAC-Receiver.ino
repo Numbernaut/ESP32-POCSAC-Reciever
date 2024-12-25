@@ -38,7 +38,7 @@ Preferences Settings;
 // OLED display configuration
 #define SCREEN_WIDTH 128    // OLED display width, in pixels
 #define SCREEN_HEIGHT 32    // OLED display height, in pixels
-#define OLED_RESET    -1    // Reset pin # (or -1 if sharing ESP32 reset pin)
+#define OLED_RESET    14    // Reset pin # (or -1 if sharing ESP32 reset pin)
 
 // Create an instance of the OLED display
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -64,7 +64,19 @@ PagerClient pager(&radio);
 
 // Variables to store messages
 #define MAX_MESSAGES 20
-String messageBuffer[MAX_MESSAGES];
+#define MAX_MESSAGE_LENGTH 80
+
+typedef struct {
+  int ric;
+  short function; //not provided by RadioLib yet
+  char message[MAX_MESSAGE_LENGTH];  
+} fullMsg_t;
+
+//String messageBuffer[MAX_MESSAGES];
+//char messageBuffer[MAX_MESSAGE_LENGTH * MAX_MESSAGES];
+//char* messagePtr[MAX_MESSAGES];
+fullMsg_t Msgs[MAX_MESSAGES];
+
 int head = 0;          // Points to the next insertion index
 int count = 0;         // Number of stored messages
 int currentIndex = 0;  // Index of the current message to display
@@ -86,23 +98,26 @@ float offset = 0.005;
 //RIC DEFINITIONS
 int ricNum = 6;
 
-int rics[10] = {1,               // 1st private ric
+int rics[11] = {1,               // 1st private ric
 		1111, 1142, 1110, // Signalspielplatz services
 		8, 2504,          // Generic/Global services
-		-1, -1, -1, -1};   // 2nd & 3rd private ric, 2 spares
-
-int masks[10] = {-1,               // 1st private ric
+		-1, -1, -1, -1,   // 2nd & 3rd private ric, 2 spares
+    -1};             //default last entry for any RIC
+int masks[11] = {-1,               // 1st private ric
 		-1, -1, -1,  	// Signalspielplatz services
 		-1, -1,          // Generic/Global services
-		-1, -1, -1, -1};   // 2nd & 3rd private ric, 2 spares
+		-1, -1, -1, -1,   // 2nd & 3rd private ric, 2 spares
+    -1};             //default last entry for any RIC
 
-int ricColor[10] = { 0x7F7F7F,               // 1st private ric
+int ricColor[11] = { 0x7F7F7F,               // 1st private ric
 		0x7F0000, 0x007F00, 0x00007F,  	// Signalspielplatz services
 		0, 0,          // Generic/Global services
-		0, 0, 0, 0};   // 2nd & 3rd private ric, 2 spares
+		0, 0, 0, 0,   // 2nd & 3rd private ric, 2 spares
+    0x7F007F};             //default last entry for any RIC
+
 
 // Tracks whether each RIC slot is "enabled" or not.
-bool ricActive[10] = {
+bool ricActive[11] = {
   true,  // RIC0 (Device RIC) 
   true,  // RIC1
   true,  // RIC2
@@ -112,7 +127,8 @@ bool ricActive[10] = {
   false, // RIC6 (User RIC)
   false, // RIC7
   false, // RIC8
-  false  // RIC9
+  false,  // RIC9
+  false  //ANY RIC
 };
 
 //------------ Menu Settings ------------
@@ -161,12 +177,12 @@ int lookUpRICIndex(int ric) {
       if (rics[i] == ric)
         return i;    
   }
-  return 9;
+  return 10;
 }
 
 void setup() {
 
-// Initialize Serial for debugging
+  // Initialize Serial for debugging
   Serial.begin(9600); 
 
   // Initialize OLED display
@@ -183,120 +199,132 @@ void setup() {
   pixels.setPixelColor(0, 0x000000);
   pixels.show();
 
-// Check persis
-Settings.begin("Settings", true);
-  
-bool isSet = Settings.isKey("RIC0");
-
-Settings.end();
-
-
-//frequency offset for cal
-
-if (isSet == false ) {
-
-// Display initial message
-  display.setTextSize(1);             // Normal 1:1 pixel scale
-  display.setTextColor(SSD1306_WHITE);// Draw white text
-  display.setCursor(0, 10);           // Start at top-left corner
-  display.println("Calibration\nmissing");
-  display.display();                   // Show initial message
-
-  // Initialize SX1278 with default FSK settings
-  Serial.print(F("[SX1278] Initializing ... "));
-  int state = radio.beginFSK();
-
-  // Check for initialization errors
-  if (state == RADIOLIB_ERR_NONE) {
-    Serial.println(F("success!"));
-  } else {
-    Serial.print(F("failed, code "));
-    Serial.println(state);
-    while (true) { delay(10); } // Halt on failure
-  }
-  calMode = true;
- 
-  //radio.setAFC(true);
-
-  //radio.setAFCBandwidth(20.0);
-
-  // Serial loading of parameters
-
-} else {
-  
+  // Check persistent if storage already exists
   Settings.begin("Settings", true);
-  baseFreq = Settings.getFloat("baseFreq");
-  Serial.print("baseFreq: ");
-  Serial.println(baseFreq);
+  
+  bool isSet = Settings.isKey("RIC0");
 
-  offset = Settings.getFloat("offset");
-  rics[0] = Settings.getInt("RIC0");
-  rics[6] = Settings.getInt("RIC6");
-  rics[7] = Settings.getInt("RIC7");
-  monitorMode = Settings.getBool("monitorMode");
   Settings.end();
 
-  if (monitorMode) {
-    for (int i=0;i<10;i++) {
-      masks[i] = 0;
+
+  //frequency offset for cal
+
+  if (isSet == false ) {
+    //CAL MODE PREPARE
+
+    // Display initial message
+    display.setTextSize(1);             // Normal 1:1 pixel scale
+    display.setTextColor(SSD1306_WHITE);// Draw white text
+    display.setCursor(0, 10);           // Start at top-left corner
+    display.println("Calibration\nmissing");
+    display.display();                   // Show initial message
+
+    // Initialize SX1278 with default FSK settings
+    Serial.print(F("[SX1278] Initializing ... "));
+    int state = radio.beginFSK();
+
+    // Check for initialization errors
+    if (state == RADIOLIB_ERR_NONE) {
+      Serial.println(F("success!"));
+    } else {
+      Serial.print(F("failed, code "));
+      Serial.println(state);
+      while (true) { delay(10); } // Halt on failure
     }
-  }
+    calMode = true;
+ 
+    //radio.setAFC(true);
 
-  displayChaosPager();
+    //radio.setAFCBandwidth(20.0);
 
-  // Initialize SX1278 with default FSK settings
-  Serial.print(F("[SX1278] Initializing ... "));
-  int state = radio.beginFSK();
+    // Serial loading of parameters
 
-  // Check for initialization errors
-  if (state == RADIOLIB_ERR_NONE) {
-    Serial.println(F("success!"));
   } else {
-    Serial.print(F("failed, code "));
-    Serial.println(state);
-    while (true) { delay(10); } // Halt on failure
+    //NORMAL OPERATION PREPARE
+  
+    //Get persistent data
+    Settings.begin("Settings", true);
+    baseFreq = Settings.getFloat("baseFreq");
+    Serial.print("baseFreq: ");
+    Serial.println(baseFreq);
+
+    offset = Settings.getFloat("offset");
+    rics[0] = Settings.getInt("RIC0");
+    rics[6] = Settings.getInt("RIC6");
+    rics[7] = Settings.getInt("RIC7");
+    monitorMode = Settings.getBool("monitorMode");
+    Settings.end();
+
+    //make masks permissive (probably redundant)
+    if (monitorMode) {
+      for (int i=0;i<10;i++) {
+        masks[i] = 0;
+      }
+    }
+
+    displayChaosPager();
+
+    // Initialize SX1278 with default FSK settings
+    Serial.print(F("[SX1278] Initializing ... "));
+    int state = radio.beginFSK();
+
+    // Check for initialization errors
+    if (state == RADIOLIB_ERR_NONE) {
+      Serial.println(F("success!"));
+    } else {
+      Serial.print(F("failed, code "));
+      Serial.println(state);
+      while (true) { delay(10); } // Halt on failure
+    }
+
+    // Initialize Pager client
+    Serial.print(F("[Pager] Initializing ... "));
+    // Set frequency to 439.9875 MHz and speed to 1200 bps
+    state = pager.begin(baseFreq + offset, 1200);
+    if (state == RADIOLIB_ERR_NONE) {
+      Serial.println(F("success!"));
+    } else {
+      Serial.print(F("failed, code "));
+      Serial.println(state);
+      while (true) { delay(10); } // Halt on failure
+    }
+
+    // Start receiving POCSAG messages
+    Serial.print(F("[Pager] Starting to listen ... "));
+
+    //Don't bother with filters in monitorMode
+    if (monitorMode) {
+      state = pager.startReceive(pin, (uint32_t) rics[0], (uint32_t) -1);
+    } else {
+      state = pager.startReceive(pin, (uint32_t*) rics, (uint32_t*) masks, ricNum);
+    }
+
+    if (state == RADIOLIB_ERR_NONE) {
+      Serial.println(F("success!"));
+    } else {
+      Serial.print(F("failed, code "));
+      Serial.println(state);
+      while (true) { delay(10); } // Halt on failure
+    }
+
+    // Initialize button with internal pull-up resistor
+    pinMode(BUTTON_UP_PIN, INPUT_PULLUP);
+    pinMode(BUTTON_OK_PIN, INPUT_PULLUP);
+    pinMode(BUTTON_DOWN_PIN, INPUT_PULLUP);
+    pinMode(BUTTON_ESC_PIN, INPUT_PULLUP);
+
+    // Initialize messageBuffer for testing, should be omitted
+    /*for (int i = 0; i < MAX_MESSAGES; i++) {
+      messageBuffer[i] = "Test Message " + String(i + 1);
+    }*/
+    
+    //count = MAX_MESSAGES; // Set count to indicate the buffer is full
+    count = 0; //empty in this variant
+    head = 0;             // Reset head for circular buffer behavior
   }
-
-  // Initialize Pager client
-  Serial.print(F("[Pager] Initializing ... "));
-  // Set frequency to 439.9875 MHz and speed to 1200 bps
-  state = pager.begin(baseFreq + offset, 1200);
-  if (state == RADIOLIB_ERR_NONE) {
-    Serial.println(F("success!"));
-  } else {
-    Serial.print(F("failed, code "));
-    Serial.println(state);
-    while (true) { delay(10); } // Halt on failure
-  }
-
-  // Start receiving POCSAG messages
-  Serial.print(F("[Pager] Starting to listen ... "));
-
-  state = pager.startReceive(pin, (uint32_t*) rics, (uint32_t*) masks, ricNum);
-  if (state == RADIOLIB_ERR_NONE) {
-    Serial.println(F("success!"));
-  } else {
-    Serial.print(F("failed, code "));
-    Serial.println(state);
-    while (true) { delay(10); } // Halt on failure
-  }
-
-  // Initialize button with internal pull-up resistor
-  pinMode(BUTTON_UP_PIN, INPUT_PULLUP);
-  pinMode(BUTTON_OK_PIN, INPUT_PULLUP);
-  pinMode(BUTTON_DOWN_PIN, INPUT_PULLUP);
-  pinMode(BUTTON_ESC_PIN, INPUT_PULLUP);
-
-  // Initialize messageBuffer for testing, should be omitted
-    for (int i = 0; i < MAX_MESSAGES; i++) {
-    messageBuffer[i] = "Test Message " + String(i + 1);
-  }
-  count = MAX_MESSAGES; // Set count to indicate the buffer is full
-  head = 0;             // Reset head for circular buffer behavior
 }
-}
 
-	//int calState = 0;
+//int calState = 0;
 String readBytes; 
 
 void calModeLoop() {
@@ -304,118 +332,165 @@ void calModeLoop() {
   Serial.println(F("CAL MODE!"));
   while (true) {
 
-do {
-	Serial.setTimeout(1000);
-	readBytes = Serial.readString();
+    do {
+	    Serial.setTimeout(1000);
+	    readBytes = Serial.readString();
 
-  Serial.println(readBytes);
-  Serial.println(readBytes[0]);
+      //Serial.println(readBytes);
+      //Serial.println(readBytes[0]);
 
- } while (readBytes[0] != '?');
+    } while (readBytes[0] != '?');
   
 
-if (readBytes[0] == '?') {
+    if (readBytes[0] == '?') {
 
-  Serial.println(readBytes);
+      Serial.println(readBytes);
 	      
-	if (readBytes[1] == 'S' && readBytes[2] == 'O') {
-		Settings.begin("Settings", false);
-		sscanf(readBytes.c_str(), "?SO%f", &offset);
-		Settings.putFloat("offset", offset);
-		Serial.println(F("SET OFFSET"));
-		Serial.println(offset);
-		Settings.end();
-	}
-	if (readBytes[1] == 'S' && readBytes[2] == 'F') {
-		Settings.begin("Settings", false);
-		sscanf(readBytes.c_str(), "?SF%f", &baseFreq);
-		Settings.putFloat("baseFreq", baseFreq);
-		Serial.println(F("SET FREQ"));
-		Serial.println(baseFreq);
-		Settings.end();
-	}
+	    if (readBytes[1] == 'S' && readBytes[2] == 'O') {
+		    Settings.begin("Settings", false);
+		    sscanf(readBytes.c_str(), "?SO%f", &offset);
+		    Settings.putFloat("offset", offset);
+		    Serial.println(F("SET OFFSET"));
+		    Serial.println(offset);
+		    Settings.end();
+	    }
+	    if (readBytes[1] == 'S' && readBytes[2] == 'F') {
+		    Settings.begin("Settings", false);
+		    sscanf(readBytes.c_str(), "?SF%f", &baseFreq);
+		    Settings.putFloat("baseFreq", baseFreq);
+		    Serial.println(F("SET FREQ"));
+		    Serial.println(baseFreq);
+		    Settings.end();
+	    }
 
-	if (readBytes[1] == 'S' && readBytes[2] == 'R') {
-		Settings.begin("Settings", false);
-		sscanf(readBytes.c_str(), "?SR%d:%d:%d", &rics[0], &rics[6], &rics[7]);
+	    if (readBytes[1] == 'S' && readBytes[2] == 'R') {
+		    Settings.begin("Settings", false);
+		    sscanf(readBytes.c_str(), "?SR%d:%d:%d", &rics[0], &rics[6], &rics[7]);
 		
-		Settings.putInt("RIC0", rics[0]);
-		Settings.putInt("RIC6", rics[6]);
-		Settings.putInt("RIC7", rics[7]);
-		Serial.println(F("SET RICS"));
-		Serial.println(rics[0]);
-		Serial.println(rics[6]);
-		Serial.println(rics[7]);
-		Settings.end();
-	}
+		    Settings.putInt("RIC0", rics[0]);
+		    Settings.putInt("RIC6", rics[6]);
+		    Settings.putInt("RIC7", rics[7]);
+		    Serial.println(F("SET RICS"));
+		    Serial.println(rics[0]);
+		    Serial.println(rics[6]);
+		    Serial.println(rics[7]);
+		    Settings.end();
+	    }
 
-  if (readBytes[1] == 'M' && readBytes[2] == 'M') {
-		Settings.begin("Settings", false);
- 		monitorMode = !monitorMode;
-		Settings.putBool("monitorMode", monitorMode);
-		Serial.println(F("ENABLE MONITOR MODE"));
-		Serial.println(monitorMode);
-		Settings.end();
-	}
-  if (readBytes[1] == '!') {
-	Settings.begin("Settings", false);
-	Settings.putFloat("offset",  0.005);
-  Settings.putFloat("baseFreq", 439.9875);
-	Settings.putInt("RIC0", 1);
-	Settings.putInt("RIC6", 2);
-	Settings.putInt("RIC7", 3);
-	Serial.println(F("Fast Cal Performed"));
-	Settings.end();
-	}
-
-
+      if (readBytes[1] == 'M' && readBytes[2] == 'M') {
+		    Settings.begin("Settings", false);
+ 		    monitorMode = !monitorMode;
+		    Settings.putBool("monitorMode", monitorMode);
+		    Serial.println(F("ENABLE MONITOR MODE"));
+		    Serial.println(monitorMode);
+		    Settings.end();
+	    }
+      if (readBytes[1] == '!') {
+	      Settings.begin("Settings", false);
+	      Settings.putFloat("offset",  0.005);
+        Settings.putFloat("baseFreq", 439.9875);
+	      Settings.putInt("RIC0", 1);
+	      Settings.putInt("RIC6", 2);
+	      Settings.putInt("RIC7", 3);
+	      Serial.println(F("Fast Cal Performed"));
+	      Settings.end();
+	    }
+    }
   }
-
-  }
-
 }
 
 void loop() {
-
     if (calMode)
       calModeLoop();
 
-  Serial.setTimeout(100);
-	readBytes = Serial.readString();
+    Serial.setTimeout(100);
+	  readBytes = Serial.readString();
 
-  if (readBytes[0] == '+' && readBytes[1] == '+' && readBytes[2] == '+' && readBytes[3] == '\n'){
+    if (readBytes[0] == '+' && readBytes[1] == '+' && readBytes[2] == '+' && readBytes[3] == '\n'){
       calModeLoop();
-  }	
+    }	
+
+    // Check if a POCSAG message is available
+    /*if (pager.available() == 1) {
+      Serial.printf("batches: %d\n", pager.available());
+    }*/
+
+    if (pager.available() >= 2) {
+      Serial.print(F("[Pager] Received pager data, decoding ... \n"));
+  
+      Serial.printf("batches: %d\n", pager.available());
+
+      //Serial.printf("%X", pager.read());
+      //DEBUG BLOCK @ RECEPTION
+      Serial.printf("ricNum: %d\n", ricNum);
+      for (int i=0;i<10;i++) {
+        Serial.printf("RIC%d: %d MASK %d ACT %d\n", i, rics[i], masks[i], ricActive[i]);
+      }
+    
 
 
-  // Check if a POCSAG message is available
-  if (pager.available() >= 2) {
-    Serial.print(F("[Pager] Received pager data, decoding ... "));
-    Serial.print(pager.available());
 
-    //Serial.printf("%X", pager.read());
+      // Read the received data into a string
+      /*String str;
+      int len = 0; //
+      int addr = 0;
+      int state = pager.readData(str, len, (uint32_t*) &addr);
+      */
 
-
-
-    // Read the received data into a string
-    String str;
-    int len = 0; //
-    int addr = 0;
-    int state = pager.readData(str, len, (uint32_t*) &addr);
-
-    if (state == RADIOLIB_ERR_NONE) {
+      char str[320];
+      size_t len = 0; //
+      int addr = 0;
+      int state = pager.readData((uint8_t*) str, &len, (uint32_t*) &addr);
+    
+      if (state == RADIOLIB_ERR_NONE) {
+      
+      //RECEPTION LOG
+      int ricIndex = lookUpRICIndex(addr);
       Serial.println(F("success!"));
       Serial.print(F("[Pager] RIC:\t"));
       Serial.println(addr);
-      pixels.setPixelColor(0, ricColor[lookUpRICIndex(addr)]);
-      pixels.show();
-      Serial.print(F("[Pager] Size:\t"));
-      Serial.println(str.length());
+      Serial.print(F("[Pager] IDX:\t"));
+      Serial.println(ricIndex);
+      //pixels.setPixelColor(0, ricColor[ricIndex]);
+      //pixels.show();
+      Serial.print(F("[Pager] Size(return):\t"));
+      Serial.println(len);
+      Serial.print(F("[Pager] Size(string):\t"));
+      //Serial.println(str.length());
+      Serial.println(strlen(str));
       Serial.print(F("[Pager] Data:\t"));
       Serial.println(str);
 
-      // Store the received message
-      storeMessage(str);
+      if (ricActive[ricIndex]) {
+        //FRONTEND TODO: PRESENT MESSAGE
+        // Display the message
+
+        pixels.setPixelColor(0, ricColor[ricIndex]);
+        pixels.show();
+
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(0, 0);
+        display.print("RIC: ");
+        display.print(addr);
+        display.setCursor(0, 10);
+        display.print("Message: ");
+        display.println(str);
+        display.display();
+
+        // Store the received message
+        Msgs[head].ric = addr;
+        Msgs[head].function = 0;
+        strncpy(Msgs[head].message, str, len);
+        Serial.print(F("Message stored\n"));
+        head = (head + 1) % MAX_MESSAGES;
+        if(count < MAX_MESSAGES)
+          count++;
+      
+        //storeMessage(str);
+      }
+      delay(1500);
 
     } else {
       // Handle errors during data reading
@@ -438,13 +513,13 @@ void loop() {
   }
 }
 
-void storeMessage(String newMessage) {
+/*void storeMessage(String newMessage) {
   messageBuffer[head] = newMessage;
   head = (head + 1) % MAX_MESSAGES;
   if (count < MAX_MESSAGES) {
     count++;
   }
-}
+}*/
 
 void displayMessage(int index) {
   if (count == 0) {
@@ -464,19 +539,23 @@ void displayMessage(int index) {
   // Calculate actual index in messageBuffer
   int actualIndex = (head - count + index + MAX_MESSAGES) % MAX_MESSAGES;
 
-  String message = messageBuffer[actualIndex];
+  //String message = messageBuffer[actualIndex];
+  pixels.setPixelColor(0, ricColor[lookUpRICIndex(Msgs[index].ric)]);
+  pixels.show();
 
   // Display the message
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
-  display.print("Message ");
+  display.print("Msg ");
   display.print(index + 1);
   display.print("/");
-  display.println(count);
+  display.print(count);
+  display.print(" RIC: ");
+  display.println(Msgs[index].ric);
   display.setCursor(0, 10);
-  display.println(message);
+  display.println(Msgs[index].message);
   display.display();
 }
 
