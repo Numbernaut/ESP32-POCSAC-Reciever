@@ -242,7 +242,7 @@ if (isSet == false ) {
     }
   }
 
-//displayChaosPager();
+  displayChaosPager();
 
   // Initialize SX1278 with default FSK settings
   Serial.print(F("[SX1278] Initializing ... "));
@@ -748,7 +748,7 @@ void drawRicMenu() {
   // Show up to 4 lines from ricMenuOffset to ricMenuOffset+3
   for (int line = 0; line < 4; line++) {
     int i = ricMenuOffset + line;  // actual RIC index for this line
-    if (i > 9) break;              // in case offset is near the end
+    if (i > 10) break;              // in case offset is near the end
 
     display.setCursor(0, line * 8);  // each line 8 px high
 
@@ -759,6 +759,7 @@ void drawRicMenu() {
       display.print("  ");
     }
 
+    if (i <= 9){
     // Show label
     display.print("RIC");
     display.print(i);
@@ -784,6 +785,11 @@ void drawRicMenu() {
         display.print(rics[i]);
       }
     }
+    } else if(i == 10){
+      // Display "Toggle Monitor Mode"
+      display.print("Monitor Mode: ");
+      display.print(monitorMode ? "ON" : "OFF");
+    }
   }
 
   display.display();
@@ -802,7 +808,7 @@ void scrollIfNeeded() {
   }
   // Constrain offset so we don't go negative or too high
   if (ricMenuOffset < 0) ricMenuOffset = 0;
-  if (ricMenuOffset > 6) ricMenuOffset = 6;  // have 10 lines => last offset is 6
+  if (ricMenuOffset > 7) ricMenuOffset = 7;  // have 11 lines => last offset is 7
 }
 
 
@@ -816,14 +822,14 @@ void handleRicMenuButtonPress(int buttonIndex) {
   switch (buttonIndex) {
     case 0: // UP
       currentRicIndex--;
-      if (currentRicIndex < 0) currentRicIndex = 9;
+      if (currentRicIndex < 0) currentRicIndex = 10;
       scrollIfNeeded();
       drawRicMenu();
       break;
 
     case 2: // DOWN
       currentRicIndex++;
-      if (currentRicIndex > 9) currentRicIndex = 0;
+      if (currentRicIndex > 10) currentRicIndex = 0;
       scrollIfNeeded();
       drawRicMenu();
       break;
@@ -833,7 +839,7 @@ void handleRicMenuButtonPress(int buttonIndex) {
       if (currentRicIndex == 0) {
         Serial.println("RIC0 is always on. (Device RIC)");
       }
-      else {
+      else if (currentRicIndex <= 9){
         // If it's RIC[1..5]
         if (currentRicIndex <= 5) {
           // Flip ricActive
@@ -861,6 +867,11 @@ void handleRicMenuButtonPress(int buttonIndex) {
             Serial.print("Disabled RIC");
             Serial.println(currentRicIndex);
           }}
+      }else if (currentRicIndex == 10) {
+        // Handle "Toggle Monitor Mode"
+        monitorMode = !monitorMode; // Flip the boolean
+        Serial.print("Monitor Mode set to ");
+        Serial.println(monitorMode ? "ON" : "OFF");
       }
       drawRicMenu();
       break;
@@ -998,8 +1009,8 @@ void drawRicEditScreen() {
   // Show digits right to left so pos=0 is the LSD
   display.setCursor(0, 20);
   for (int i = 0; i < 5; i++) {
-    int idx = 4 - i; // LSD is buf[4]
-    if (i == editDigitPos) {
+    int idx =  i; // LSD is buf[0]
+    if (4-i == editDigitPos) {
       display.print("[");
       display.print(buf[idx]);
       display.print("]");
