@@ -31,9 +31,13 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_NeoPixel.h>
 #include <Preferences.h>
+#include <esp_task_wdt.h>
+
 
 //Settings
 Preferences Settings; 
+
+#define WDT_TIMEOUT 5
 
 // OLED display configuration
 #define SCREEN_WIDTH 128    // OLED display width, in pixels
@@ -57,7 +61,7 @@ SX1278 radio = new Module(NSS_PIN, 2, RESET_PIN, 4);
 // Receiving packets does not require a DIO2 pin connection in this setup
 const int pin = 12;
 
-
+const esp_task_wdt_config_t wdt_config = { WDT_TIMEOUT, 0, false};
 
 // Create Pager client instance using the FSK module
 PagerClient pager(&radio);
@@ -294,7 +298,8 @@ void setup() {
 
     //Don't bother with filters in monitorMode
     if (monitorMode) {
-      state = pager.startReceive(pin, (uint32_t) rics[0], (uint32_t) -1);
+      //state = pager.startReceive(pin, (uint32_t) rics[0], (uint32_t) -1);
+      state = pager.startReceive(pin, (uint32_t) rics[0], (uint32_t) 0xFFFFF);
     } else {
       state = pager.startReceive(pin, (uint32_t*) rics, (uint32_t*) masks, ricNum);
     }
@@ -321,6 +326,10 @@ void setup() {
     //count = MAX_MESSAGES; // Set count to indicate the buffer is full
     count = 0; //empty in this variant
     head = 0;             // Reset head for circular buffer behavior
+
+    esp_task_wdt_init(&wdt_config); //enable panic so ESP32 restarts
+    esp_task_wdt_add(NULL); //add current thread to WDT watch
+
   }
 }
 
@@ -410,6 +419,8 @@ void loop() {
       calModeLoop();
     }	
 
+    esp_task_wdt_reset();
+
     // Check if a POCSAG message is available
     /*if (pager.available() == 1) {
       Serial.printf("batches: %d\n", pager.available());
@@ -438,7 +449,7 @@ void loop() {
       */
 
       char str[320];
-      size_t len = 0; //
+      size_t len = 80; //
       int addr = 0;
       int state = pager.readData((uint8_t*) str, &len, (uint32_t*) &addr);
     
@@ -462,7 +473,6 @@ void loop() {
       Serial.println(str);
 
       if (ricActive[ricIndex]) {
-        //FRONTEND TODO: PRESENT MESSAGE
         // Display the message
 
         pixels.setPixelColor(0, ricColor[ricIndex]);
@@ -949,6 +959,9 @@ void handleRicMenuButtonPress(int buttonIndex) {
       }else if (currentRicIndex == 10) {
         // Handle "Toggle Monitor Mode"
         monitorMode = !monitorMode; // Flip the boolean
+        Settings.begin("Settings", false);
+		    Settings.putBool("monitorMode", monitorMode);
+        Settings.end();
         Serial.print("Monitor Mode set to ");
         Serial.println(monitorMode ? "ON" : "OFF");
       }
