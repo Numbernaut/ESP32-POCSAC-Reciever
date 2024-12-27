@@ -805,7 +805,8 @@ void handleMenuButtonPress(int buttonIndex) {
         // Mute Buzzer
         buzzerMuted = !buzzerMuted; 
         Serial.print("Buzzer muted? ");
-        Serial.println(buzzerMuted ? "YES" : "NO");
+        Serial.println(buzzerMuted);
+        // ? "YES" : "NO");
       }
       else if (currentMenuIndex == 1) {
       // "Change RIC IDs"
