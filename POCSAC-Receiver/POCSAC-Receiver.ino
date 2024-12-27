@@ -23,6 +23,9 @@
   https://jgromes.github.io/RadioLib/
 */
 
+#define RADIOLIB_DEBUG_PROTOCOL 1
+#define RADIOLIB_DEBUG_PORT Serial
+
 // Include necessary libraries
 #include <SPI.h>
 #include <Wire.h>
@@ -36,13 +39,14 @@
 
 //Settings
 Preferences Settings; 
-
 #define WDT_TIMEOUT 5
 
 // OLED display configuration
 #define SCREEN_WIDTH 128    // OLED display width, in pixels
 #define SCREEN_HEIGHT 32    // OLED display height, in pixels
 #define OLED_RESET    14    // Reset pin # (or -1 if sharing ESP32 reset pin)
+
+#define BUZZER_PIN 17
 
 // Create an instance of the OLED display
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
@@ -87,7 +91,7 @@ int currentIndex = 0;  // Index of the current message to display
 bool displayOn = false; // Indicates whether the display is on or off
 
 bool calMode = false; // Calibration mode if true
-
+bool buzzerMuted = false; //buzzer muted if true
 bool monitorMode = false; //monitor mode if true
 
 // Buttons config
@@ -102,7 +106,7 @@ float offset = 0.005;
 //RIC DEFINITIONS
 int ricNum = 6;
 
-int rics[11] = {1,               // 1st private ric
+int rics[11] = {-1,               // 1st private ric
 		1111, 1142, 1110, // Signalspielplatz services
 		8, 2504,          // Generic/Global services
 		-1, -1, -1, -1,   // 2nd & 3rd private ric, 2 spares
@@ -113,11 +117,11 @@ int masks[11] = {-1,               // 1st private ric
 		-1, -1, -1, -1,   // 2nd & 3rd private ric, 2 spares
     -1};             //default last entry for any RIC
 
-int ricColor[11] = { 0x7F7F7F,               // 1st private ric
-		0x7F0000, 0x007F00, 0x00007F,  	// Signalspielplatz services
+int ricColor[11] = { 0x1F1F1F,               // 1st private ric
+		0x1F0000, 0x001F00, 0x00001F,  	// Signalspielplatz services
 		0, 0,          // Generic/Global services
 		0, 0, 0, 0,   // 2nd & 3rd private ric, 2 spares
-    0x7F007F};             //default last entry for any RIC
+    0x1F001F};             //default last entry for any RIC
 
 
 // Tracks whether each RIC slot is "enabled" or not.
@@ -184,6 +188,22 @@ int lookUpRICIndex(int ric) {
   return 10;
 }
 
+void buzzer(int freq, int duration) {
+  if (buzzerMuted)
+    return;
+  float interval = 1000.0/freq;
+  
+  Serial.println(interval,9);
+  esp_task_wdt_reset();
+  for (int i=0;i < duration/interval; i++) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(interval);
+    esp_task_wdt_reset();
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(interval);    
+  }
+}
+
 void setup() {
 
   // Initialize Serial for debugging
@@ -198,7 +218,6 @@ void setup() {
 
   // Clear the buffer
   display.clearDisplay();
-
   pixels.begin();
   pixels.setPixelColor(0, 0x000000);
   pixels.show();
@@ -299,7 +318,7 @@ void setup() {
     //Don't bother with filters in monitorMode
     if (monitorMode) {
       //state = pager.startReceive(pin, (uint32_t) rics[0], (uint32_t) -1);
-      state = pager.startReceive(pin, (uint32_t) rics[0], (uint32_t) 0xFFFFF);
+      state = pager.startReceive(pin, (uint32_t) rics[0], (uint32_t) 0);
     } else {
       state = pager.startReceive(pin, (uint32_t*) rics, (uint32_t*) masks, ricNum);
     }
@@ -317,6 +336,8 @@ void setup() {
     pinMode(BUTTON_OK_PIN, INPUT_PULLUP);
     pinMode(BUTTON_DOWN_PIN, INPUT_PULLUP);
     pinMode(BUTTON_ESC_PIN, INPUT_PULLUP);
+
+    pinMode(BUZZER_PIN, OUTPUT);
 
     // Initialize messageBuffer for testing, should be omitted
     /*for (int i = 0; i < MAX_MESSAGES; i++) {
@@ -449,10 +470,10 @@ void loop() {
       */
 
       char str[320];
-      size_t len = 80; //
+      size_t len = 0; //
       int addr = 0;
       int state = pager.readData((uint8_t*) str, &len, (uint32_t*) &addr);
-    
+
       if (state == RADIOLIB_ERR_NONE) {
       
       //RECEPTION LOG
@@ -472,7 +493,7 @@ void loop() {
       Serial.print(F("[Pager] Data:\t"));
       Serial.println(str);
 
-      if (ricActive[ricIndex]) {
+      if (ricActive[ricIndex] || monitorMode) {
         // Display the message
 
         pixels.setPixelColor(0, ricColor[ricIndex]);
@@ -499,6 +520,10 @@ void loop() {
           count++;
       
         //storeMessage(str);
+        buzzer(440,500);
+        buzzer(880,500);
+        buzzer(440,500);
+        buzzer(880,500);
       }
       delay(1500);
 
@@ -778,9 +803,9 @@ void handleMenuButtonPress(int buttonIndex) {
       // Perform the action of the selected item
       if (currentMenuIndex == 0) {
         // Mute Buzzer
-        //buzzerMuted = !buzzerMuted; 
+        buzzerMuted = !buzzerMuted; 
         Serial.print("Buzzer muted? ");
-   //     Serial.println(buzzerMuted ? "YES" : "NO");
+        Serial.println(buzzerMuted ? "YES" : "NO");
       }
       else if (currentMenuIndex == 1) {
       // "Change RIC IDs"
@@ -959,6 +984,7 @@ void handleRicMenuButtonPress(int buttonIndex) {
       }else if (currentRicIndex == 10) {
         // Handle "Toggle Monitor Mode"
         monitorMode = !monitorMode; // Flip the boolean
+        ricActive[10] = monitorMode;
         Settings.begin("Settings", false);
 		    Settings.putBool("monitorMode", monitorMode);
         Settings.end();
