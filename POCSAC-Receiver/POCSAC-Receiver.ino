@@ -73,6 +73,7 @@ PagerClient pager(&radio);
 // Variables to store messages
 #define MAX_MESSAGES 20
 #define MAX_MESSAGE_LENGTH 80
+#define MAX_RIC 0x1FFFFF
 
 typedef struct {
   int ric;
@@ -91,7 +92,7 @@ int currentIndex = 0;  // Index of the current message to display
 bool displayOn = false; // Indicates whether the display is on or off
 
 bool calMode = false; // Calibration mode if true
-bool buzzerMuted = false; //buzzer muted if true
+bool buzzerMuted = true; //buzzer muted if true
 bool monitorMode = false; //monitor mode if true
 
 // Buttons config
@@ -115,7 +116,7 @@ int masks[11] = {-1,               // 1st private ric
 		-1, -1, -1,  	// Signalspielplatz services
 		-1, -1,          // Generic/Global services
 		-1, -1, -1, -1,   // 2nd & 3rd private ric, 2 spares
-    -1};             //default last entry for any RIC
+    monitorMode};             //default last entry for any RIC
 
 int ricColor[11] = { 0x1F1F1F,               // 1st private ric
 		0x1F0000, 0x001F00, 0x00001F,  	// Signalspielplatz services
@@ -143,7 +144,7 @@ bool ricActive[11] = {
 bool inMenu = false; // Tracks whether we are currently in the menu
 
 // Menu items
-const char* menuItems[] = {
+char* menuItems[] = {
   "Mute Buzzer",
   "Change RIC IDs",
   "Turn screen off"
@@ -152,11 +153,12 @@ const int NUM_MENU_ITEMS = 3;
 int currentMenuIndex = 0;
 
 // RIC Menu
+int activeMask = 0x3f;
 bool inRicMenu = false;
 int currentRicIndex = 0;
 int ricMenuOffset = 0;     // for scrolling (0-6 since 10 lines total, 4 visible)
 bool inRicDigitEdit = false;
-int editDigitPos = 0;
+int editDigitPos = 6;
 
 //--------------------------------------
 
@@ -202,6 +204,14 @@ void buzzer(int freq, int duration) {
     digitalWrite(BUZZER_PIN, LOW);
     delay(interval);    
   }
+}
+
+void saveRic(int idx) {
+  char lbl[8];
+  sprintf(lbl,"RIC%d", idx);
+  Settings.begin("Settings", false);
+  Settings.putInt(lbl,rics[idx]);
+  Settings.end();
 }
 
 void setup() {
@@ -272,11 +282,64 @@ void setup() {
     Serial.println(baseFreq);
 
     offset = Settings.getFloat("offset");
+    Serial.print("Offset: ");
+    Serial.println(offset);
+
     rics[0] = Settings.getInt("RIC0");
+    Serial.print("RIC0: ");
+    Serial.println(rics[0]);
+
     rics[6] = Settings.getInt("RIC6");
+    Serial.print("RIC6: ");
+    Serial.println(rics[6]);
+
     rics[7] = Settings.getInt("RIC7");
+    Serial.print("RIC7: ");
+    Serial.println(rics[7]);
+
     monitorMode = Settings.getBool("monitorMode");
-    Settings.end();
+    ricActive[10] = monitorMode;
+    Serial.print("MM: ");
+    Serial.println(monitorMode);
+
+    if (Settings.isKey("activeMask")) {
+      rics[8] = Settings.getInt("RIC8");
+      Serial.print("RIC8: ");
+      Serial.println(rics[8]);
+
+      rics[9] = Settings.getInt("RIC9");
+      Serial.print("RIC9: ");
+      Serial.println(rics[9]);
+
+      activeMask = Settings.getInt("activeMask");
+      Serial.print("AM: ");
+      Serial.println(activeMask);
+
+      Settings.end();
+      for (int i=0;i<10;i++) {
+        if ((rics[i] != -1) && (activeMask & (1 << i)) )
+	  ricActive[i] = true;
+      }
+
+    } else {
+      Settings.end();
+      activeMask = 0x0;  
+      for (int i=0;i<10;i++) {
+        if (rics[i] != -1) {
+	        ricActive[i] = true;
+          activeMask |= 1 << i; 
+        }
+      }
+      Settings.begin("Settings", false);
+
+      Settings.putInt("RIC8", rics[8]);
+      Settings.putInt("RIC9", rics[9]);
+      Settings.putInt("activeMask", activeMask);
+
+      Settings.end();
+	        
+    }
+    
 
     //make masks permissive (probably redundant)
     if (monitorMode) {
@@ -285,7 +348,7 @@ void setup() {
       }
     }
 
-    displayChaosPager();
+     displayChaosPager();
 
     // Initialize SX1278 with default FSK settings
     Serial.print(F("[SX1278] Initializing ... "));
@@ -493,7 +556,7 @@ void loop() {
       Serial.print(F("[Pager] Data:\t"));
       Serial.println(str);
 
-      if (ricActive[ricIndex] || monitorMode) {
+      if (ricActive[ricIndex]) {
         // Display the message
 
         pixels.setPixelColor(0, ricColor[ricIndex]);
@@ -525,7 +588,7 @@ void loop() {
         buzzer(440,500);
         buzzer(880,500);
       }
-      delay(1500);
+      delay(100);
 
     } else {
       // Handle errors during data reading
@@ -709,7 +772,7 @@ void handleLongPress(int buttonIndex) {
     if (currentRicIndex >= 6 && currentRicIndex <= 9 && ricActive[currentRicIndex]) {
       // Enter Digit Edit Mode
       inRicDigitEdit = true;
-      editDigitPos = 0; // Start with least significant digit
+      editDigitPos = 6; // Start with most significant digit
       Serial.print("Entering Digit Edit for RIC ");
       Serial.println(currentRicIndex);
       drawRicEditScreen();
@@ -806,6 +869,12 @@ void handleMenuButtonPress(int buttonIndex) {
         buzzerMuted = !buzzerMuted; 
         Serial.print("Buzzer muted? ");
         Serial.println(buzzerMuted);
+	if (buzzerMuted) {
+		menuItems[0] = "Unmute Buzzer";
+	} else {
+		menuItems[0] = "Mute Buzzer";
+	}	
+		
         // ? "YES" : "NO");
       }
       else if (currentMenuIndex == 1) {
@@ -951,12 +1020,12 @@ void handleRicMenuButtonPress(int buttonIndex) {
 
     case 1: // OK => Toggle
       // RIC0 => do nothing (Device RIC locked for toggling)
-      if (currentRicIndex == 0) {
-        Serial.println("RIC0 is always on. (Device RIC)");
+      if (currentRicIndex == 0 || currentRicIndex == 4 || currentRicIndex == 5 ) {
+        Serial.println("RIC0, RIC4 & RIC5 is always on. (Device RIC)");
       }
       else if (currentRicIndex <= 9){
         // If it's RIC[1..5]
-        if (currentRicIndex <= 5) {
+        if (currentRicIndex <= 3) {
           // Flip ricActive
           ricActive[currentRicIndex] = !ricActive[currentRicIndex];
           Serial.print("Toggled RIC");
@@ -978,7 +1047,7 @@ void handleRicMenuButtonPress(int buttonIndex) {
           else {
             // Turn it off => set to -1
             ricActive[currentRicIndex] = false;
-            rics[currentRicIndex] = -1;
+            //rics[currentRicIndex] = -1;
             Serial.print("Disabled RIC");
             Serial.println(currentRicIndex);
           }}
@@ -987,7 +1056,7 @@ void handleRicMenuButtonPress(int buttonIndex) {
         monitorMode = !monitorMode; // Flip the boolean
         ricActive[10] = monitorMode;
         Settings.begin("Settings", false);
-		    Settings.putBool("monitorMode", monitorMode);
+        Settings.putBool("monitorMode", monitorMode);
         Settings.end();
         Serial.print("Monitor Mode set to ");
         Serial.println(monitorMode ? "ON" : "OFF");
@@ -1000,6 +1069,7 @@ void handleRicMenuButtonPress(int buttonIndex) {
       inMenu = true;        // Enter Main Menu
       reorderRics69();  // reorder indices 6-9
       updateRicNum();
+      updateActiveMask();
       Serial.println("Exiting RIC Menu and returning to Main Menu");
       // Draw the main menu
       drawMenu(currentMenuIndex);
@@ -1043,6 +1113,19 @@ void updateRicNum() {
   Serial.println(ricNum);
 }
 
+void updateActiveMask() {
+      for (int i=0;i<10;i++) {
+        if (ricActive[i]) {
+          activeMask |= 1 << i; 
+        }
+      }
+      Settings.begin("Settings", false);
+
+      Settings.putInt("activeMask", activeMask);
+
+      Settings.end();
+}
+
 // RIC DIGIT EDITING
 void handleRicDigitEditButtonPress(int buttonIndex) {
   // RIC must be active
@@ -1072,21 +1155,28 @@ void handleRicDigitEditButtonPress(int buttonIndex) {
       drawRicEditScreen();
       break;
     }
-    case 1: // OK => next digit
+    case 1: // OK => prev digit
       editDigitPos++;
-      if (editDigitPos > 4) {
+      if (editDigitPos > 6) {
         inRicDigitEdit = false;
         Serial.print("Done editing RIC ");
         Serial.println(currentRicIndex);
+        saveRic(currentRicIndex);
         drawRicMenu();
       } else {
         drawRicEditScreen();
       }
       break;
-    case 3: // ESC => quit digit edit
-      inRicDigitEdit = false;
-      Serial.println("Cancelled digit editing");
-      drawRicMenu();
+    case 3: // ESC => next digit
+      editDigitPos--;
+      if (editDigitPos < 0) {
+        inRicDigitEdit = false;
+      	Serial.println("Cancelled digit editing");
+        saveRic(currentRicIndex);
+        drawRicMenu();
+      } else {
+        drawRicEditScreen();
+      }
       break;
   }
 }
@@ -1105,7 +1195,9 @@ int setRicDigit(int original, int pos, int newDigit) {
   int power = 1;
   for (int i = 0; i < pos; i++) power *= 10;
   int oldDigit = (original / power) % 10;
-  return original - oldDigit*power + newDigit*power;
+  int newRIC = original - oldDigit*power + newDigit*power;
+  Serial.printf("Old: %d New %d %d", original, newRIC, MAX_RIC);
+  return (newRIC > MAX_RIC) ? original : newRIC;
 }
 
 void drawRicEditScreen() {
@@ -1114,22 +1206,22 @@ void drawRicEditScreen() {
   display.setTextColor(SSD1306_WHITE);
 
   int val = (rics[currentRicIndex] < 0) ? 0 : rics[currentRicIndex];
-  char buf[6];
+  char buf[7];
   // 5 digits max => zero-padded
-  sprintf(buf, "%05d", val);
+  sprintf(buf, "%07d", val);
 
   display.setCursor(0, 0);
   display.print("Editing RIC");
   display.println(currentRicIndex);
 
   display.setCursor(0, 10);
-  display.println("UP/DN=>+/-,OK=>next");
+  display.println("UP + DN - OK < ESC >");
 
   // Show digits right to left so pos=0 is the LSD
   display.setCursor(0, 20);
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 7; i++) {
     int idx =  i; // LSD is buf[0]
-    if (4-i == editDigitPos) {
+    if (6-i == editDigitPos) {
       display.print("[");
       display.print(buf[idx]);
       display.print("]");
@@ -1153,7 +1245,7 @@ void handleVisualIndicators() {
     }
   }
 
-  // Handle visual indicator for longPress
+  // Handle visual indicator for longPressmonitorMode
   if (longPressIndicatorActive) {
     if (millis() - longPressIndicatorTime > 200) { // 200 ms duration
       // Erase indicator
