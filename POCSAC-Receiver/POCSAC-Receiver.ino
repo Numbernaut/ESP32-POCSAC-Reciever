@@ -41,6 +41,8 @@
 Preferences Settings; 
 #define WDT_TIMEOUT 5
 
+#define  VERSION "0.1.0"
+
 // OLED display configuration
 #define SCREEN_WIDTH 128    // OLED display width, in pixels
 #define SCREEN_HEIGHT 32    // OLED display height, in pixels
@@ -303,6 +305,7 @@ void setup() {
     Serial.println(monitorMode);
 
     if (Settings.isKey("activeMask")) {
+      Serial.print("activeMask exists!");
       rics[8] = Settings.getInt("RIC8");
       Serial.print("RIC8: ");
       Serial.println(rics[8]);
@@ -317,8 +320,11 @@ void setup() {
 
       Settings.end();
       for (int i=0;i<10;i++) {
-        if ((rics[i] != -1) && (activeMask & (1 << i)) )
-	  ricActive[i] = true;
+        if ((rics[i] != -1) && (activeMask & (1 << i)) ) {
+	        ricActive[i] = true;
+        } else {
+	        ricActive[i] = false;
+        }
       }
 
     } else {
@@ -825,7 +831,7 @@ void displayChaosPager() {
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 10); // Adjust as needed for proper centering
-  display.println("ChaosPager");
+  display.println("ChaosPager "VERSION);
   display.display();
 }
 
@@ -1067,7 +1073,7 @@ void handleRicMenuButtonPress(int buttonIndex) {
     case 3: // ESC => Turn display off
       inRicMenu = false;
       inMenu = true;        // Enter Main Menu
-      reorderRics69();  // reorder indices 6-9
+      //reorderRics69();  // reorder indices 6-9
       updateRicNum();
       updateActiveMask();
       Serial.println("Exiting RIC Menu and returning to Main Menu");
@@ -1078,7 +1084,7 @@ void handleRicMenuButtonPress(int buttonIndex) {
 }
 
 //Reorder the User RIC's in position 6-9
-void reorderRics69() {
+/*void reorderRics69() {
   // We'll bubble sort among [6..9] so that -1s go to the end
   for (int i = 6; i < 9; i++) {
     for (int j = i+1; j < 10; j++) {
@@ -1094,7 +1100,7 @@ void reorderRics69() {
       }
     }
   }
-}
+}*/
 
 // UPDATE ricNum = count active RICs (not -1)
 void updateRicNum() {
@@ -1114,11 +1120,17 @@ void updateRicNum() {
 }
 
 void updateActiveMask() {
+      Serial.println(activeMask);
+      
+      activeMask = 0;
       for (int i=0;i<10;i++) {
         if (ricActive[i]) {
           activeMask |= 1 << i; 
         }
       }
+      
+      Serial.println(activeMask);
+
       Settings.begin("Settings", false);
 
       Settings.putInt("activeMask", activeMask);
